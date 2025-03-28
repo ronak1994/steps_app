@@ -17,6 +17,7 @@ import expo.modules.ApplicationLifecycleDispatcher
 import expo.modules.ReactNativeHostWrapper
 
 import com.developerodin.myapp.PedometerPackage
+import com.developerodin.myapp.StepNotificationPackage
 
 
 class MainApplication : Application(), ReactApplication {
@@ -29,6 +30,7 @@ class MainApplication : Application(), ReactApplication {
             // Packages that cannot be autolinked yet can be added manually here, for example:
             // packages.add(new MyReactNativePackage());
             packages.add(PedometerPackage());
+            packages.add(StepNotificationPackage());
            
             return packages
           }

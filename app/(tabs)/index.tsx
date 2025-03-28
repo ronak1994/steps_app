@@ -1,6 +1,7 @@
 import { View, Text, Button, ScrollView, PermissionsAndroid, Platform, Animated } from "react-native";
 import { useEffect, useState, useRef } from "react";
 import { NativeModules, NativeEventEmitter } from "react-native";
+import { StepNotification } from "../types/StepNotification";
 
 const { PedometerModule } = NativeModules;
 
@@ -8,6 +9,7 @@ export default function IndexScreen() {
   const [steps, setSteps] = useState<number>(0);
   const [logMessages, setLogMessages] = useState<string[]>([]);
   const [hasPermission, setHasPermission] = useState<boolean>(false);
+  const [notificationEnabled, setNotificationEnabled] = useState<boolean>(false);
 
   // ✅ Animated value for smooth step updates
   const animatedSteps = useRef(new Animated.Value(0)).current;
@@ -40,6 +42,21 @@ export default function IndexScreen() {
     }
   };
 
+  const toggleNotification = async () => {
+    try {
+      if (notificationEnabled) {
+        await StepNotification.hideNotification();
+        addLog("✅ Notification hidden");
+      } else {
+        await StepNotification.showNotification(steps);
+        addLog("✅ Notification shown");
+      }
+      setNotificationEnabled(!notificationEnabled);
+    } catch (error: unknown) {
+      addLog(`❌ Notification error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
   useEffect(() => {
     requestPermission();
 
@@ -67,6 +84,12 @@ export default function IndexScreen() {
         }).start();
 
         setSteps(newStepCount);
+
+        // Update notification if enabled
+        if (notificationEnabled) {
+          StepNotification.showNotification(newStepCount)
+            .catch((error: unknown) => addLog(`❌ Notification update error: ${error instanceof Error ? error.message : String(error)}`));
+        }
       });
 
       return () => {
@@ -74,12 +97,16 @@ export default function IndexScreen() {
         subscription.remove();
         PedometerModule.stopStepCounting()
           .then(() => addLog("✅ Step counter stopped"))
-          .catch((error) => addLog(`❌ Error stopping: ${error.message || JSON.stringify(error)}`));
+          .catch((error: unknown) => addLog(`❌ Error stopping: ${error instanceof Error ? error.message : String(error)}`));
+        if (notificationEnabled) {
+          StepNotification.hideNotification()
+            .catch((error: unknown) => addLog(`❌ Error hiding notification: ${error instanceof Error ? error.message : String(error)}`));
+        }
       };
     } else {
       addLog("⚠️ Waiting for permissions...");
     }
-  }, [hasPermission]);
+  }, [hasPermission, notificationEnabled]);
 
   return (
     <View style={{ flex: 1, padding: 20, justifyContent: "center", alignItems: "center", backgroundColor: "#FFFFFF" }}>
@@ -109,7 +136,7 @@ export default function IndexScreen() {
           if (hasPermission) {
             PedometerModule.startStepCounting()
               .then(() => addLog("✅ Manually started step counting"))
-              .catch((error) => addLog(`❌ Error starting: ${error.message || JSON.stringify(error)}`));
+              .catch((error: unknown) => addLog(`❌ Error starting: ${error instanceof Error ? error.message : String(error)}`));
           } else {
             addLog("⚠️ Permission not granted. Cannot start.");
           }
@@ -120,8 +147,12 @@ export default function IndexScreen() {
         onPress={() => {
           PedometerModule.stopStepCounting()
             .then(() => addLog("✅ Manually stopped step counting"))
-            .catch((error) => addLog(`❌ Error stopping: ${error.message || JSON.stringify(error)}`));
+            .catch((error: unknown) => addLog(`❌ Error stopping: ${error instanceof Error ? error.message : String(error)}`));
         }}
+      />
+      <Button
+        title={notificationEnabled ? "Hide Notification" : "Show Notification"}
+        onPress={toggleNotification}
       />
 
       <Text style={{ fontSize: 20, marginTop: 20, fontWeight: "bold", color: "#000" }}>Debug Logs:</Text>
