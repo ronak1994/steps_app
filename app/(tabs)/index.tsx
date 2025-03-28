@@ -21,7 +21,8 @@ export default function IndexScreen() {
   const requestPermission = async () => {
     if (Platform.OS === "android") {
       try {
-        const granted = await PermissionsAndroid.request(
+        // Request Activity Recognition permission
+        const activityGranted = await PermissionsAndroid.request(
           PermissionsAndroid.PERMISSIONS.ACTIVITY_RECOGNITION,
           {
             title: "Activity Recognition Permission",
@@ -29,11 +30,23 @@ export default function IndexScreen() {
             buttonPositive: "OK",
           }
         );
-        if (granted === PermissionsAndroid.RESULTS.GRANTED) {
-          addLog("✅ Permission granted!");
+
+        // Request Notification permission
+        const notificationGranted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+          {
+            title: "Notification Permission",
+            message: "This app needs notification permission to show your step count.",
+            buttonPositive: "OK",
+          }
+        );
+
+        if (activityGranted === PermissionsAndroid.RESULTS.GRANTED && 
+            notificationGranted === PermissionsAndroid.RESULTS.GRANTED) {
+          addLog("✅ All permissions granted!");
           setHasPermission(true);
         } else {
-          addLog("❌ Permission denied!");
+          addLog("❌ Some permissions were denied!");
           setHasPermission(false);
         }
       } catch (err) {
