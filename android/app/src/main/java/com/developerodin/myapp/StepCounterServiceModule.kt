@@ -1,96 +1,151 @@
 package com.developerodin.myapp
 
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
 import com.facebook.react.bridge.*
 import com.facebook.react.modules.core.DeviceEventManagerModule
 
+/**
+ * StepCounterServiceModule: Bridge between React Native and the native StepCounterService.
+ * This module provides methods to start and stop the step counting service, and handles
+ * communication between the service and React Native.
+ */
 class StepCounterServiceModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
+    companion object {
+        private const val TAG = "StepCounterServiceModule"
+        private const val STEP_UPDATE_EVENT = "stepUpdate"
+        private const val SERVICE_STATUS_EVENT = "serviceStatus"
+        private const val ERROR_EVENT = "error"
+
+        @Volatile
+        private var instance: StepCounterServiceModule? = null
+
+        fun getInstance(): StepCounterServiceModule? = instance
+    }
+
     private var isServiceRunning = false
-    private val TAG = "StepCounterServiceModule"
+    private lateinit var stepDataManager: StepDataManager
 
-    override fun getName(): String = "StepCounterServiceModule"
+    init {
+        instance = this
+        // Initialize StepDataManager
+        stepDataManager = StepDataManager.getInstance(reactApplicationContext)
+        // Load saved step data
+        loadSavedStepData()
+    }
 
+    /**
+     * Loads saved step data and sends it to React Native
+     */
+    private fun loadSavedStepData() {
+        try {
+            val totalSteps = stepDataManager.getTotalSteps()
+            Log.d(TAG, "Loading saved step data: $totalSteps")
+            sendStepUpdate(totalSteps)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading saved step data", e)
+            sendError("Failed to load saved step data: ${e.message}")
+        }
+    }
+
+    override fun getName() = "StepCounterService"
+
+    /**
+     * Starts the step counting service.
+     * This method launches the StepCounterService as a foreground service.
+     */
     @ReactMethod
     fun startService(promise: Promise) {
         try {
-            if (isServiceRunning) {
-                promise.reject("SERVICE_ALREADY_RUNNING", "Step counter service is already running")
-                return
-            }
-
-            val intent = Intent(reactApplicationContext, StepCounterService::class.java)
-            Log.d(TAG, "Starting service...")
+            val context = reactApplicationContext
+            val serviceIntent = Intent(context, StepCounterService::class.java)
             
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                reactApplicationContext.startForegroundService(intent)
+                context.startForegroundService(serviceIntent)
             } else {
-                reactApplicationContext.startService(intent)
+                context.startService(serviceIntent)
             }
+            
             isServiceRunning = true
             sendServiceStatus(true)
-            Log.d(TAG, "Service started successfully")
             promise.resolve(null)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start service", e)
-            isServiceRunning = false
-            sendServiceStatus(false)
-            promise.reject("START_SERVICE_ERROR", "Failed to start step counter service: ${e.message}")
+            Log.e(TAG, "Error starting service", e)
+            sendError("Failed to start service: ${e.message}")
+            promise.reject("SERVICE_ERROR", e)
         }
     }
 
+    /**
+     * Stops the step counting service.
+     * This method stops the StepCounterService and cleans up resources.
+     */
     @ReactMethod
     fun stopService(promise: Promise) {
         try {
-            if (!isServiceRunning) {
-                promise.reject("SERVICE_NOT_RUNNING", "Step counter service is not running")
-                return
-            }
-
-            val intent = Intent(reactApplicationContext, StepCounterService::class.java)
-            reactApplicationContext.stopService(intent)
+            val context = reactApplicationContext
+            context.stopService(Intent(context, StepCounterService::class.java))
             isServiceRunning = false
             sendServiceStatus(false)
-            Log.d(TAG, "Service stopped successfully")
             promise.resolve(null)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to stop service", e)
-            promise.reject("STOP_SERVICE_ERROR", "Failed to stop step counter service: ${e.message}")
+            Log.e(TAG, "Error stopping service", e)
+            sendError("Failed to stop service: ${e.message}")
+            promise.reject("SERVICE_ERROR", e)
         }
     }
 
-    // Required to be implemented
-    @ReactMethod
-    fun addListener(eventName: String) {
-    }
-
-    @ReactMethod
-    fun removeListeners(count: Int) {
-    }
-
-    private fun sendServiceStatus(isRunning: Boolean) {
-        try {
-            val params = Arguments.createMap().apply {
-                putBoolean("isRunning", isRunning)
-            }
-            sendEvent("onServiceStatus", params)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error sending service status", e)
-        }
-    }
-
+    /**
+     * Sends step count updates to React Native.
+     * This method is called by the StepCounterService when new step data is available.
+     */
     fun sendStepUpdate(steps: Int) {
         try {
             val params = Arguments.createMap().apply {
                 putInt("steps", steps)
             }
-            sendEvent("onStepUpdate", params)
+            sendEvent(STEP_UPDATE_EVENT, params)
         } catch (e: Exception) {
             Log.e(TAG, "Error sending step update", e)
         }
     }
 
+    /**
+     * Sends service status updates to React Native.
+     * This method is called when the service starts or stops.
+     */
+    fun sendServiceStatus(isRunning: Boolean) {
+        try {
+            val params = Arguments.createMap().apply {
+                putBoolean("isRunning", isRunning)
+            }
+            sendEvent(SERVICE_STATUS_EVENT, params)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending service status", e)
+        }
+    }
+
+    /**
+     * Sends error messages to React Native.
+     * This method is called when an error occurs in the service.
+     */
+    fun sendError(message: String) {
+        try {
+            val params = Arguments.createMap().apply {
+                putString("message", message)
+            }
+            sendEvent(ERROR_EVENT, params)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending error message", e)
+        }
+    }
+
+    /**
+     * Sends events to React Native.
+     * This is a helper method that ensures events are sent safely.
+     */
     private fun sendEvent(eventName: String, params: WritableMap?) {
         try {
             reactApplicationContext
@@ -99,19 +154,5 @@ class StepCounterServiceModule(reactContext: ReactApplicationContext) : ReactCon
         } catch (e: Exception) {
             Log.e(TAG, "Error sending event: $eventName", e)
         }
-    }
-
-    companion object {
-        private var instance: StepCounterServiceModule? = null
-
-        fun getInstance(): StepCounterServiceModule? = instance
-
-        fun updateSteps(steps: Int) {
-            instance?.sendStepUpdate(steps)
-        }
-    }
-
-    init {
-        instance = this
     }
 } 

@@ -25,6 +25,8 @@ class StepCounterService : Service(), SensorEventListener {
         private const val NOTIFICATION_ID = 1
         private const val CHANNEL_ID = "StepCounterChannel"
         private const val CHANNEL_NAME = "Step Counter"
+        private const val MAX_RETRY_COUNT = 3
+        private const val RETRY_DELAY_MS = 1000L
         
         // Method to update steps through the module
         fun updateSteps(steps: Int) {
@@ -37,11 +39,14 @@ class StepCounterService : Service(), SensorEventListener {
     private var sensorManager: SensorManager? = null
     private var stepCountSensor: Sensor? = null
     private var pendingIntent: PendingIntent? = null
+    private lateinit var stepDataManager: StepDataManager
 
     // Step counting variables
     private var initialStepCount: Int = -1  // Initial step count when service starts
     private var currentStepCount: Int = 0   // Current step count from sensor
     private var isCountingSteps = false     // Flag to track if we're counting steps
+    private var totalSteps: Int = 0         // Total steps since service started
+    private var retryCount = 0              // Counter for retry attempts
 
     /**
      * Called when the service is first created.
@@ -52,6 +57,9 @@ class StepCounterService : Service(), SensorEventListener {
         Log.d(TAG, "Service onCreate")
         
         try {
+            // Initialize data manager
+            stepDataManager = StepDataManager.getInstance(this)
+
             // Set up notification manager and channel
             notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             createNotificationChannel()
@@ -71,9 +79,13 @@ class StepCounterService : Service(), SensorEventListener {
             
             if (stepCountSensor == null) {
                 Log.e(TAG, "No step counter sensor found on device")
+                // Notify UI about sensor unavailability
+                StepCounterServiceModule.getInstance()?.sendError("No step counter sensor found on device")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error in onCreate", e)
+            StepCounterServiceModule.getInstance()?.sendError("Failed to initialize service: ${e.message}")
+            handleError(e)
         }
     }
 
@@ -106,11 +118,16 @@ class StepCounterService : Service(), SensorEventListener {
             val notification = createNotification("Starting step counter...")
             startForeground(NOTIFICATION_ID, notification)
 
+            // Load saved step data
+            loadSavedStepData()
+
             // Start counting steps
             startStepCounting()
 
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start foreground service", e)
+            StepCounterServiceModule.getInstance()?.sendError("Failed to start service: ${e.message}")
+            handleError(e)
             stopSelf()
             return START_NOT_STICKY
         }
@@ -119,17 +136,69 @@ class StepCounterService : Service(), SensorEventListener {
     }
 
     /**
+     * Loads saved step data from persistent storage
+     */
+    private fun loadSavedStepData() {
+        try {
+            // Check if we need to reset for a new GMT day
+            if (stepDataManager.shouldResetSteps()) {
+                Log.d(TAG, "New GMT day detected, resetting step data")
+                stepDataManager.resetStepsForNewDay()
+                initialStepCount = -1
+                currentStepCount = 0
+                totalSteps = 0
+            } else {
+                initialStepCount = stepDataManager.getInitialStepCount()
+                currentStepCount = stepDataManager.getLastStepCount()
+                totalSteps = stepDataManager.getTotalSteps()
+            }
+
+            Log.d(TAG, "Loaded saved data - Initial: $initialStepCount, Current: $currentStepCount, Total: $totalSteps")
+            
+            // Update UI with saved data
+            StepCounterServiceModule.getInstance()?.sendStepUpdate(totalSteps)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading saved step data", e)
+            StepCounterServiceModule.getInstance()?.sendError("Failed to load saved step data: ${e.message}")
+            handleError(e)
+        }
+    }
+
+    /**
+     * Saves current step data to persistent storage
+     */
+    private fun saveStepData() {
+        try {
+            stepDataManager.saveStepData(currentStepCount, initialStepCount, totalSteps)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving step data", e)
+            StepCounterServiceModule.getInstance()?.sendError("Failed to save step data: ${e.message}")
+            handleError(e)
+        }
+    }
+
+    /**
      * Starts listening for step count updates from the sensor.
      */
     private fun startStepCounting() {
         if (!isCountingSteps && stepCountSensor != null) {
-            sensorManager?.registerListener(
-                this,
-                stepCountSensor,
-                SensorManager.SENSOR_DELAY_NORMAL
-            )
-            isCountingSteps = true
-            Log.d(TAG, "Step counting started")
+            try {
+                sensorManager?.registerListener(
+                    this,
+                    stepCountSensor,
+                    SensorManager.SENSOR_DELAY_NORMAL
+                )
+                isCountingSteps = true
+                retryCount = 0 // Reset retry count on successful start
+                Log.d(TAG, "Step counting started")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start step counting", e)
+                StepCounterServiceModule.getInstance()?.sendError("Failed to start step counting: ${e.message}")
+                handleError(e)
+            }
+        } else if (stepCountSensor == null) {
+            Log.e(TAG, "Cannot start step counting: No sensor available")
+            StepCounterServiceModule.getInstance()?.sendError("No step counter sensor available")
         }
     }
 
@@ -138,11 +207,20 @@ class StepCounterService : Service(), SensorEventListener {
      */
     private fun stopStepCounting() {
         if (isCountingSteps) {
-            sensorManager?.unregisterListener(this)
-            isCountingSteps = false
-            initialStepCount = -1
-            currentStepCount = 0
-            Log.d(TAG, "Step counting stopped")
+            try {
+                sensorManager?.unregisterListener(this)
+                isCountingSteps = false
+                saveStepData() // Save data before resetting
+                initialStepCount = -1
+                currentStepCount = 0
+                totalSteps = 0
+                retryCount = 0 // Reset retry count
+                Log.d(TAG, "Step counting stopped")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to stop step counting", e)
+                StepCounterServiceModule.getInstance()?.sendError("Failed to stop step counting: ${e.message}")
+                handleError(e)
+            }
         }
     }
 
@@ -176,23 +254,43 @@ class StepCounterService : Service(), SensorEventListener {
      */
     override fun onSensorChanged(event: SensorEvent?) {
         if (event?.sensor?.type == Sensor.TYPE_STEP_COUNTER) {
-            val steps = event.values[0].toInt()
-            
-            // Set initial step count if not set
-            if (initialStepCount == -1) {
-                initialStepCount = steps
-                Log.d(TAG, "Initial step count: $initialStepCount")
+            try {
+                // Check if we need to reset for a new GMT day
+                if (stepDataManager.shouldResetSteps()) {
+                    Log.d(TAG, "New GMT day detected during step counting, resetting data")
+                    stepDataManager.resetStepsForNewDay()
+                    initialStepCount = -1
+                    currentStepCount = 0
+                    totalSteps = 0
+                }
+
+                val steps = event.values[0].toInt()
+                
+                // Set initial step count if not set
+                if (initialStepCount == -1) {
+                    initialStepCount = steps
+                    Log.d(TAG, "Initial step count: $initialStepCount")
+                }
+                
+                currentStepCount = steps
+                totalSteps = currentStepCount - initialStepCount
+                Log.d(TAG, "Steps updated - Total: $totalSteps")
+                
+                // Update UI through the module
+                StepCounterServiceModule.getInstance()?.sendStepUpdate(totalSteps)
+                
+                // Update notification
+                updateNotification()
+                
+                // Save data periodically (every 100 steps)
+                if (totalSteps % 100 == 0) {
+                    saveStepData()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error processing step count", e)
+                StepCounterServiceModule.getInstance()?.sendError("Error processing step count: ${e.message}")
+                handleError(e)
             }
-            
-            currentStepCount = steps
-            val stepsSinceStart = currentStepCount - initialStepCount
-            Log.d(TAG, "Steps updated - Total: $currentStepCount, Since start: $stepsSinceStart")
-            
-            // Update UI through the module
-            StepCounterServiceModule.getInstance()?.sendStepUpdate(stepsSinceStart)
-            
-            // Update notification
-            updateNotification()
         }
     }
 
@@ -208,8 +306,46 @@ class StepCounterService : Service(), SensorEventListener {
      */
     override fun onDestroy() {
         Log.d(TAG, "Service onDestroy")
-        stopStepCounting()
-        stopForeground(true)
+        try {
+            stopStepCounting()
+            saveStepData() // Save final data
+            stopForeground(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in onDestroy", e)
+            StepCounterServiceModule.getInstance()?.sendError("Error stopping service: ${e.message}")
+            handleError(e)
+        }
         super.onDestroy()
+    }
+
+    /**
+     * Handles errors with retry mechanism
+     */
+    private fun handleError(e: Exception) {
+        if (retryCount < MAX_RETRY_COUNT) {
+            retryCount++
+            Log.d(TAG, "Attempting retry $retryCount of $MAX_RETRY_COUNT")
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                try {
+                    when (e) {
+                        is IllegalStateException -> {
+                            // Retry sensor registration
+                            if (isCountingSteps) {
+                                startStepCounting()
+                            }
+                        }
+                        else -> {
+                            // For other errors, try to save data
+                            saveStepData()
+                        }
+                    }
+                } catch (retryError: Exception) {
+                    Log.e(TAG, "Retry failed", retryError)
+                }
+            }, RETRY_DELAY_MS)
+        } else {
+            Log.e(TAG, "Max retry attempts reached", e)
+            StepCounterServiceModule.getInstance()?.sendError("Service encountered persistent errors")
+        }
     }
 } 

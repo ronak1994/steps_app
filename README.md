@@ -1,50 +1,146 @@
-# Welcome to your Expo app 👋
+# React Native Step Counter App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A robust step counter application that runs in the background, built with React Native and Kotlin.
 
-## Get started
+## Features
 
-1. Install dependencies
+- 🔄 Background step counting
+- 💾 Persistent data storage
+- 🌐 GMT-based daily reset (00:00 GMT)
+- 📱 Real-time step updates
+- 🔔 Foreground service with notification
+- ⚠️ Comprehensive error handling
+- 🔄 Automatic recovery mechanisms
 
-   ```bash
-   npm install
-   ```
+## Prerequisites
 
-2. Start the app
+- Node.js (v14 or later)
+- Expo CLI
+- Android Studio
+- Kotlin development environment
+- Android device or emulator with step counter sensor
 
-   ```bash
-    npx expo start
-   ```
+## Installation
 
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
+1. Clone the repository:
 ```bash
-npm run reset-project
+git clone https://github.com/yourusername/step-counter-app.git
+cd step-counter-app
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+2. Install dependencies:
+```bash
+npm install
+```
 
-## Learn more
+3. Create native Android project:
+```bash
+npx expo prebuild
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+4. Open Android Studio and sync the project:
+```bash
+cd android
+./gradlew clean
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## Project Structure
 
-## Join the community
+```
+├── app/                      # React Native (TypeScript) layer
+│   ├── (tabs)/
+│   │   └── index.tsx        # Main UI
+│   └── types/
+│       └── StepCounterService.ts  # TypeScript interface
+│
+└── android/                  # Native Android (Kotlin) layer
+    └── app/src/main/java/com/yourpackage/
+        ├── StepCounterService.kt         # Background service
+        ├── StepCounterServiceModule.kt   # React Native bridge
+        ├── StepCounterServicePackage.kt  # Package registration
+        ├── StepDataManager.kt           # Data persistence
+        └── MainApplication.kt           # App configuration
+```
 
-Join our community of developers creating universal apps.
+## Documentation
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Detailed documentation is available in the following sections:
+
+1. [Architecture Overview](docs/ARCHITECTURE.md)
+2. [Component Details](docs/COMPONENTS.md)
+3. [Implementation Guide](docs/IMPLEMENTATION.md)
+4. [API Reference](docs/API.md)
+5. [Troubleshooting](docs/TROUBLESHOOTING.md)
+
+## Quick Start
+
+1. Start the development server:
+```bash
+npx expo start
+```
+
+2. Run on Android:
+```bash
+npx expo run:android
+```
+
+## Configuration
+
+### Required Permissions
+
+Add the following permissions to `android/app/src/main/AndroidManifest.xml`:
+
+```xml
+<uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+```
+
+### Service Configuration
+
+The step counter service is configured in `StepCounterService.kt`:
+
+```kotlin
+private const val NOTIFICATION_ID = 1
+private const val CHANNEL_ID = "StepCounterChannel"
+private const val CHANNEL_NAME = "Step Counter"
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+- React Native team
+- Expo team
+- Android Sensor API
+- Contributors and maintainers
+
+## Support
+
+For support, please:
+1. Check the [documentation](docs/)
+2. Search [existing issues](https://github.com/yourusername/step-counter-app/issues)
+3. Create a new issue if needed
+
+## Roadmap
+
+- [ ] Add step goal setting
+- [ ] Implement step history
+- [ ] Add data export
+- [ ] Support for iOS
+- [ ] Add unit tests
+- [ ] Improve error recovery
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for version history and changes.

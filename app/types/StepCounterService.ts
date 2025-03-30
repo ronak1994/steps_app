@@ -15,4 +15,5 @@ export const stepCounterEventEmitter = new NativeEventEmitter(StepCounterService
 
 // Event types
 export const STEP_UPDATE = 'onStepUpdate';
-export const SERVICE_STATUS = 'onServiceStatus'; 
+export const SERVICE_STATUS = 'onServiceStatus';
+export const ERROR = 'onError'; 

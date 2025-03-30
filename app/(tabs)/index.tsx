@@ -1,6 +1,6 @@
 import { StyleSheet, View, Button, Text, Platform, ScrollView, PermissionsAndroid } from 'react-native';
 import { useEffect, useState } from 'react';
-import { StepCounterService, stepCounterEventEmitter, STEP_UPDATE, SERVICE_STATUS } from '../types/StepCounterService';
+import { StepCounterService, stepCounterEventEmitter, STEP_UPDATE, SERVICE_STATUS, ERROR } from '../types/StepCounterService';
 
 export default function TabOneScreen() {
   // State for service and step count
@@ -13,6 +13,8 @@ export default function TabOneScreen() {
     activityRecognition: false,
     notification: false,
   });
+  // State for errors
+  const [error, setError] = useState<string | null>(null);
 
   // Helper function to add logs
   const addLog = (message: string) => {
@@ -68,7 +70,9 @@ export default function TabOneScreen() {
           }
         }
       } catch (err) {
-        addLog(`Error checking permissions: ${err instanceof Error ? err.message : String(err)}`);
+        const errorMessage = `Error checking permissions: ${err instanceof Error ? err.message : String(err)}`;
+        addLog(errorMessage);
+        setError(errorMessage);
       }
     }
   };
@@ -89,17 +93,27 @@ export default function TabOneScreen() {
       setServiceRunning(event.isRunning);
     });
 
+    // Subscribe to error events
+    const errorSubscription = stepCounterEventEmitter.addListener(ERROR, (event) => {
+      const errorMessage = event.message;
+      addLog(`Error: ${errorMessage}`);
+      setError(errorMessage);
+    });
+
     // Cleanup subscriptions when component unmounts
     return () => {
       stepSubscription.remove();
       statusSubscription.remove();
+      errorSubscription.remove();
     };
   }, []);
 
   const toggleService = async () => {
     // Check if all required permissions are granted
     if (!permissions.activityRecognition || !permissions.notification) {
-      addLog('Cannot start service: Required permissions not granted');
+      const errorMessage = 'Cannot start service: Required permissions not granted';
+      addLog(errorMessage);
+      setError(errorMessage);
       return;
     }
 
@@ -112,8 +126,11 @@ export default function TabOneScreen() {
         await StepCounterService.startService();
         addLog('Service started successfully');
       }
+      setError(null); // Clear any previous errors
     } catch (error) {
-      addLog(`Error: ${error instanceof Error ? error.message : String(error)}`);
+      const errorMessage = `Error: ${error instanceof Error ? error.message : String(error)}`;
+      addLog(errorMessage);
+      setError(errorMessage);
     }
   };
 
@@ -139,6 +156,13 @@ export default function TabOneScreen() {
             Notifications: {permissions.notification ? '✓ Granted' : '✗ Not Granted'}
           </Text>
         </View>
+
+        {/* Error Display */}
+        {error && (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
 
         <Text style={styles.stepCount}>{stepCount} steps</Text>
         <Button
@@ -200,6 +224,17 @@ const styles = StyleSheet.create({
   },
   permissionDenied: {
     color: '#F44336',
+  },
+  errorContainer: {
+    width: '100%',
+    padding: 10,
+    backgroundColor: '#FFEBEE',
+    borderRadius: 5,
+    marginBottom: 20,
+  },
+  errorText: {
+    color: '#F44336',
+    fontSize: 14,
   },
   stepCount: {
     fontSize: 48,
