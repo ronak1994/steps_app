@@ -1,179 +1,233 @@
-import { View, Text, Button, ScrollView, PermissionsAndroid, Platform, Animated } from "react-native";
-import { useEffect, useState, useRef } from "react";
-import { NativeModules, NativeEventEmitter } from "react-native";
-import { StepNotification } from "../types/StepNotification";
+import { StyleSheet, View, Button, Text, Platform, ScrollView, PermissionsAndroid } from 'react-native';
+import { useEffect, useState } from 'react';
+import { StepCounterService, stepCounterEventEmitter, STEP_UPDATE, SERVICE_STATUS } from '../types/StepCounterService';
 
-const { PedometerModule } = NativeModules;
+export default function TabOneScreen() {
+  // State for service and step count
+  const [serviceRunning, setServiceRunning] = useState(false);
+  const [stepCount, setStepCount] = useState(0);
+  // State for logs
+  const [logs, setLogs] = useState<string[]>([]);
+  // State for permissions
+  const [permissions, setPermissions] = useState({
+    activityRecognition: false,
+    notification: false,
+  });
 
-export default function IndexScreen() {
-  const [steps, setSteps] = useState<number>(0);
-  const [logMessages, setLogMessages] = useState<string[]>([]);
-  const [hasPermission, setHasPermission] = useState<boolean>(false);
-  const [notificationEnabled, setNotificationEnabled] = useState<boolean>(false);
-
-  // ✅ Animated value for smooth step updates
-  const animatedSteps = useRef(new Animated.Value(0)).current;
-
+  // Helper function to add logs
   const addLog = (message: string) => {
-    setLogMessages((prevLogs) => [...prevLogs, message]);
+    setLogs(prevLogs => [...prevLogs, `${new Date().toLocaleTimeString()}: ${message}`]);
   };
 
-  const requestPermission = async () => {
-    if (Platform.OS === "android") {
+  // Function to check and request permissions
+  const checkAndRequestPermissions = async () => {
+    if (Platform.OS === 'android') {
       try {
-        // Request Activity Recognition permission
-        const activityGranted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.ACTIVITY_RECOGNITION,
-          {
-            title: "Activity Recognition Permission",
-            message: "This app needs access to your physical activity to track steps.",
-            buttonPositive: "OK",
-          }
+        // Check Activity Recognition permission
+        const activityRecognitionGranted = await PermissionsAndroid.check(
+          PermissionsAndroid.PERMISSIONS.ACTIVITY_RECOGNITION
         );
+        
+        // Check Notification permission for Android 13+
+        let notificationGranted = true;
+        if (Platform.Version >= 33) {
+          notificationGranted = await PermissionsAndroid.check(
+            PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
+          );
+        }
 
-        // Request Notification permission
-        const notificationGranted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
-          {
-            title: "Notification Permission",
-            message: "This app needs notification permission to show your step count.",
-            buttonPositive: "OK",
+        // Update permissions state
+        setPermissions({
+          activityRecognition: activityRecognitionGranted,
+          notification: notificationGranted,
+        });
+
+        // Request permissions if not granted
+        if (!activityRecognitionGranted || !notificationGranted) {
+          const permissionsToRequest = [];
+          if (!activityRecognitionGranted) {
+            permissionsToRequest.push(PermissionsAndroid.PERMISSIONS.ACTIVITY_RECOGNITION);
           }
-        );
+          if (!notificationGranted && Platform.Version >= 33) {
+            permissionsToRequest.push(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+          }
 
-        if (activityGranted === PermissionsAndroid.RESULTS.GRANTED && 
-            notificationGranted === PermissionsAndroid.RESULTS.GRANTED) {
-          addLog("✅ All permissions granted!");
-          setHasPermission(true);
-        } else {
-          addLog("❌ Some permissions were denied!");
-          setHasPermission(false);
+          const result = await PermissionsAndroid.requestMultiple(permissionsToRequest);
+          
+          // Update permissions state after request
+          setPermissions({
+            activityRecognition: result[PermissionsAndroid.PERMISSIONS.ACTIVITY_RECOGNITION] === 'granted',
+            notification: result[PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS] === 'granted' || Platform.Version < 33,
+          });
+
+          // Log permission results
+          addLog('Permission Results:');
+          addLog(`Activity Recognition: ${result[PermissionsAndroid.PERMISSIONS.ACTIVITY_RECOGNITION]}`);
+          if (Platform.Version >= 33) {
+            addLog(`Notifications: ${result[PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS]}`);
+          }
         }
       } catch (err) {
-        addLog(`❌ Permission request error: ${err}`);
+        addLog(`Error checking permissions: ${err instanceof Error ? err.message : String(err)}`);
       }
-    }
-  };
-
-  const toggleNotification = async () => {
-    try {
-      if (notificationEnabled) {
-        await StepNotification.hideNotification();
-        addLog("✅ Notification hidden");
-      } else {
-        await StepNotification.showNotification(steps);
-        addLog("✅ Notification shown");
-      }
-      setNotificationEnabled(!notificationEnabled);
-    } catch (error: unknown) {
-      addLog(`❌ Notification error: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
   useEffect(() => {
-    requestPermission();
+    // Check permissions when component mounts
+    checkAndRequestPermissions();
 
-    if (!PedometerModule) {
-      addLog("❌ PedometerModule is NOT available!");
+    // Subscribe to step updates
+    const stepSubscription = stepCounterEventEmitter.addListener(STEP_UPDATE, (event) => {
+      addLog(`Steps updated: ${event.steps}`);
+      setStepCount(event.steps);
+    });
+
+    // Subscribe to service status updates
+    const statusSubscription = stepCounterEventEmitter.addListener(SERVICE_STATUS, (event) => {
+      addLog(`Service status: ${event.isRunning ? 'Running' : 'Stopped'}`);
+      setServiceRunning(event.isRunning);
+    });
+
+    // Cleanup subscriptions when component unmounts
+    return () => {
+      stepSubscription.remove();
+      statusSubscription.remove();
+    };
+  }, []);
+
+  const toggleService = async () => {
+    // Check if all required permissions are granted
+    if (!permissions.activityRecognition || !permissions.notification) {
+      addLog('Cannot start service: Required permissions not granted');
       return;
     }
 
-    addLog("✅ PedometerModule detected! Trying to start...");
-
-    if (hasPermission) {
-      PedometerModule.startStepCounting()
-        .then((message: string) => addLog(`✅ Success: ${message}`))
-        .catch((error: any) => addLog(`❌ Error: ${error.message || JSON.stringify(error)}`));
-
-      const eventEmitter = new NativeEventEmitter(PedometerModule);
-      const subscription = eventEmitter.addListener("StepUpdate", (newStepCount) => {
-        addLog(`🚶 Steps Updated: ${newStepCount}`);
-
-        // ✅ Animate step count updates
-        Animated.timing(animatedSteps, {
-          toValue: newStepCount,
-          duration: 300, // Adjust duration for smoother effect
-          useNativeDriver: false,
-        }).start();
-
-        setSteps(newStepCount);
-
-        // Update notification if enabled
-        if (notificationEnabled) {
-          StepNotification.showNotification(newStepCount)
-            .catch((error: unknown) => addLog(`❌ Notification update error: ${error instanceof Error ? error.message : String(error)}`));
-        }
-      });
-
-      return () => {
-        addLog("🔄 Cleaning up listeners...");
-        subscription.remove();
-        PedometerModule.stopStepCounting()
-          .then(() => addLog("✅ Step counter stopped"))
-          .catch((error: unknown) => addLog(`❌ Error stopping: ${error instanceof Error ? error.message : String(error)}`));
-        if (notificationEnabled) {
-          StepNotification.hideNotification()
-            .catch((error: unknown) => addLog(`❌ Error hiding notification: ${error instanceof Error ? error.message : String(error)}`));
-        }
-      };
-    } else {
-      addLog("⚠️ Waiting for permissions...");
+    try {
+      addLog(`Attempting to ${serviceRunning ? 'stop' : 'start'} service...`);
+      if (serviceRunning) {
+        await StepCounterService.stopService();
+        addLog('Service stopped successfully');
+      } else {
+        await StepCounterService.startService();
+        addLog('Service started successfully');
+      }
+    } catch (error) {
+      addLog(`Error: ${error instanceof Error ? error.message : String(error)}`);
     }
-  }, [hasPermission, notificationEnabled]);
+  };
 
   return (
-    <View style={{ flex: 1, padding: 20, justifyContent: "center", alignItems: "center", backgroundColor: "#FFFFFF" }}>
-      {/* ✅ Animated Text for Smooth Step Updates */}
-      <Animated.Text
-        style={{
-          fontSize: 40,
-          fontWeight: "bold",
-          color: "#000",
-          transform: [
-            {
-              scale: animatedSteps.interpolate({
-                inputRange: [0, steps + 1],
-                outputRange: [1, 1.1], // Slight zoom effect on step change
-              }),
-            },
-          ],
-        }}
-      >
-        Step Count: {steps}
-      </Animated.Text>
+    <View style={styles.container}>
+      {/* Main Controls */}
+      <View style={styles.controls}>
+        <Text style={styles.title}>Step Counter Demo</Text>
+        
+        {/* Permission Status */}
+        <View style={styles.permissionStatus}>
+          <Text style={styles.permissionTitle}>Required Permissions:</Text>
+          <Text style={[
+            styles.permissionText,
+            permissions.activityRecognition ? styles.permissionGranted : styles.permissionDenied
+          ]}>
+            Activity Recognition: {permissions.activityRecognition ? '✓ Granted' : '✗ Not Granted'}
+          </Text>
+          <Text style={[
+            styles.permissionText,
+            permissions.notification ? styles.permissionGranted : styles.permissionDenied
+          ]}>
+            Notifications: {permissions.notification ? '✓ Granted' : '✗ Not Granted'}
+          </Text>
+        </View>
 
-      <Button title="Request Permission" onPress={requestPermission} />
-      <Button
-        title="Start Step Counting"
-        onPress={() => {
-          if (hasPermission) {
-            PedometerModule.startStepCounting()
-              .then(() => addLog("✅ Manually started step counting"))
-              .catch((error: unknown) => addLog(`❌ Error starting: ${error instanceof Error ? error.message : String(error)}`));
-          } else {
-            addLog("⚠️ Permission not granted. Cannot start.");
-          }
-        }}
-      />
-      <Button
-        title="Stop Step Counting"
-        onPress={() => {
-          PedometerModule.stopStepCounting()
-            .then(() => addLog("✅ Manually stopped step counting"))
-            .catch((error: unknown) => addLog(`❌ Error stopping: ${error instanceof Error ? error.message : String(error)}`));
-        }}
-      />
-      <Button
-        title={notificationEnabled ? "Hide Notification" : "Show Notification"}
-        onPress={toggleNotification}
-      />
+        <Text style={styles.stepCount}>{stepCount} steps</Text>
+        <Button
+          title={serviceRunning ? 'Stop Service' : 'Start Service'}
+          onPress={toggleService}
+          disabled={!permissions.activityRecognition || !permissions.notification}
+        />
+        <Text style={styles.status}>
+          Service Status: {serviceRunning ? 'Running' : 'Stopped'}
+        </Text>
+      </View>
 
-      <Text style={{ fontSize: 20, marginTop: 20, fontWeight: "bold", color: "#000" }}>Debug Logs:</Text>
-      <ScrollView style={{ marginTop: 10, width: "100%", maxHeight: 300, borderWidth: 1, padding: 10, backgroundColor: "#FFFFFF" }}>
-        {logMessages.map((log, index) => (
-          <Text key={index} style={{ fontSize: 14, marginBottom: 5, color: "#000" }}>{log}</Text>
-        ))}
-      </ScrollView>
+      {/* Debug Logs */}
+      <View style={styles.logContainer}>
+        <Text style={styles.logTitle}>Debug Logs:</Text>
+        <ScrollView style={styles.logScroll}>
+          {logs.map((log, index) => (
+            <Text key={index} style={styles.logText}>{log}</Text>
+          ))}
+        </ScrollView>
+      </View>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    padding: 20,
+    backgroundColor: '#fff',
+  },
+  controls: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 20,
+  },
+  permissionStatus: {
+    width: '100%',
+    padding: 10,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 5,
+    marginBottom: 20,
+  },
+  permissionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 5,
+  },
+  permissionText: {
+    fontSize: 14,
+    marginBottom: 3,
+  },
+  permissionGranted: {
+    color: '#4CAF50',
+  },
+  permissionDenied: {
+    color: '#F44336',
+  },
+  stepCount: {
+    fontSize: 48,
+    marginBottom: 30,
+  },
+  status: {
+    marginTop: 20,
+    fontSize: 16,
+    color: '#666',
+  },
+  logContainer: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 5,
+    padding: 10,
+  },
+  logTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  logScroll: {
+    flex: 1,
+  },
+  logText: {
+    fontSize: 12,
+    marginBottom: 5,
+    color: '#333',
+  },
+});
