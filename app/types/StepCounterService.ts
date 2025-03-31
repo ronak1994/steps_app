@@ -20,9 +20,16 @@ export interface ErrorEvent {
   message: string;
 }
 
+export interface ServiceStatus {
+  isRunning: boolean;
+  steps: number;
+}
+
 export interface StepCounterServiceInterface {
   startService(): Promise<void>;
   stopService(): Promise<void>;
+  checkServiceStatus(): Promise<ServiceStatus>;
+  forceResetSteps(): Promise<void>;
   addStepUpdateListener(callback: (event: StepUpdateEvent) => void): () => void;
   addServiceStatusListener(callback: (event: ServiceStatusEvent) => void): () => void;
   addErrorListener(callback: (event: ErrorEvent) => void): () => void;
@@ -43,6 +50,24 @@ const StepCounterServiceAPI: StepCounterServiceInterface = {
       await StepCounterService.stopService();
     } catch (error) {
       console.error('Failed to stop service:', error);
+      throw error;
+    }
+  },
+
+  checkServiceStatus: async () => {
+    try {
+      return await StepCounterService.checkServiceStatus();
+    } catch (error) {
+      console.error('Failed to check service status:', error);
+      throw error;
+    }
+  },
+
+  forceResetSteps: async () => {
+    try {
+      await StepCounterService.forceResetSteps();
+    } catch (error) {
+      console.error('Failed to reset steps:', error);
       throw error;
     }
   },

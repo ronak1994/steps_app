@@ -1,129 +1,62 @@
-# Implementation Guide
+# Step Counter App Implementation Guide
 
-## Setup Instructions
+## Prerequisites
 
-### 1. Project Setup
+1. Development Environment
+   - Node.js (v14 or later)
+   - React Native development environment
+   - Android Studio
+   - Expo CLI
 
-1. Create a new Expo project:
-```bash
-npx create-expo-app -t expo-template-blank-typescript step-counter-app
-cd step-counter-app
-```
+2. Required Dependencies
+   ```json
+   {
+     "dependencies": {
+       "react-native": "0.72.x",
+       "expo": "^49.0.0"
+     }
+   }
+   ```
 
-2. Install dependencies:
-```bash
-npm install
-```
+## Project Setup
 
-3. Create native Android project:
-```bash
-npx expo prebuild
-```
+1. Create New Project
+   ```bash
+   npx create-expo-app my-step-counter
+   cd my-step-counter
+   ```
 
-### 2. Android Configuration
+2. Initialize Native Code
+   ```bash
+   npx expo prebuild
+   ```
 
-1. Add required permissions to `android/app/src/main/AndroidManifest.xml`:
+## Android Implementation
+
+### 1. Configure AndroidManifest.xml
+
+Add required permissions and service declaration:
+
 ```xml
-<uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
-<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+<manifest>
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION"/>
+    <uses-permission android:name="android.permission.BODY_SENSORS"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+    <application>
+        <service
+            android:name=".StepCounterService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="shortService"/>
+    </application>
+</manifest>
 ```
 
-2. Add service declaration:
-```xml
-<service
-    android:name=".StepCounterService"
-    android:enabled="true"
-    android:exported="false"
-    android:foregroundServiceType="shortService" />
-```
+### 2. Create Native Files
 
-## Implementation Steps
-
-### 1. TypeScript Interface
-
-1. Create `app/types/StepCounterService.ts`:
-```typescript
-import { NativeEventEmitter, NativeModules } from 'react-native';
-
-export const STEP_UPDATE = 'stepUpdate';
-export const SERVICE_STATUS = 'serviceStatus';
-export const ERROR = 'error';
-
-interface StepCounterServiceType {
-  startService(): Promise<void>;
-  stopService(): Promise<void>;
-}
-
-const StepCounterService = NativeModules.StepCounterService as StepCounterServiceType;
-export const stepCounterEventEmitter = new NativeEventEmitter(StepCounterService);
-```
-
-### 2. Main UI
-
-1. Create `app/(tabs)/index.tsx`:
-```typescript
-export default function TabOneScreen() {
-  const [serviceRunning, setServiceRunning] = useState(false);
-  const [stepCount, setStepCount] = useState(0);
-  const [logs, setLogs] = useState<string[]>([]);
-  const [permissions, setPermissions] = useState({
-    activityRecognition: false,
-    notification: false,
-  });
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    checkAndRequestPermissions();
-    setupEventListeners();
-  }, []);
-
-  const setupEventListeners = () => {
-    const stepSubscription = stepCounterEventEmitter.addListener(
-      STEP_UPDATE,
-      (event) => {
-        setStepCount(event.steps);
-        addLog(`Steps updated: ${event.steps}`);
-      }
-    );
-    // ... other listeners
-  };
-}
-```
-
-### 3. Native Service
-
-1. Create `StepCounterService.kt`:
-```kotlin
-class StepCounterService : Service(), SensorEventListener {
-    companion object {
-        private const val TAG = "StepCounterService"
-        private const val NOTIFICATION_ID = 1
-        private const val CHANNEL_ID = "StepCounterChannel"
-    }
-
-    private var notificationManager: NotificationManager? = null
-    private var sensorManager: SensorManager? = null
-    private var stepCountSensor: Sensor? = null
-    private lateinit var stepDataManager: StepDataManager
-
-    override fun onCreate() {
-        super.onCreate()
-        setupService()
-    }
-
-    private fun setupService() {
-        stepDataManager = StepDataManager.getInstance(this)
-        notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
-        stepCountSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
-    }
-}
-```
-
-### 4. Data Manager
-
-1. Create `StepDataManager.kt`:
+#### StepDataManager.kt
 ```kotlin
 class StepDataManager private constructor(private val context: Context) {
     companion object {
@@ -131,158 +64,264 @@ class StepDataManager private constructor(private val context: Context) {
         private const val KEY_LAST_STEP_COUNT = "lastStepCount"
         private const val KEY_INITIAL_STEP_COUNT = "initialStepCount"
         private const val KEY_TOTAL_STEPS = "totalSteps"
+        private const val KEY_LAST_SAVE_TIME = "lastSaveTime"
         private const val KEY_LAST_RESET_DATE = "lastResetDate"
+
+        @Volatile
+        private var instance: StepDataManager? = null
+
+        fun getInstance(context: Context): StepDataManager {
+            return instance ?: synchronized(this) {
+                instance ?: StepDataManager(context.applicationContext).also { instance = it }
+            }
+        }
     }
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
 
-    fun saveStepData(lastStepCount: Int, initialStepCount: Int, totalSteps: Int) {
-        prefs.edit()
-            .putInt(KEY_LAST_STEP_COUNT, lastStepCount)
-            .putInt(KEY_INITIAL_STEP_COUNT, initialStepCount)
-            .putInt(KEY_TOTAL_STEPS, totalSteps)
-            .putLong(KEY_LAST_SAVE_TIME, System.currentTimeMillis())
-            .apply()
+    // Implementation methods...
+}
+```
+
+#### StepCounterService.kt
+```kotlin
+class StepCounterService : Service(), SensorEventListener {
+    companion object {
+        private const val NOTIFICATION_ID = 1
+        private const val CHANNEL_ID = "StepCounterChannel"
+        private const val CHANNEL_NAME = "Step Counter"
+        private const val MAX_RETRY_COUNT = 3
+        private const val RETRY_DELAY_MS = 1000L
+    }
+
+    // Service implementation...
+}
+```
+
+#### StepCounterServiceModule.kt
+```kotlin
+class StepCounterServiceModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
+    companion object {
+        private const val TAG = "StepCounterServiceModule"
+        private const val STEP_UPDATE_EVENT = "stepUpdate"
+        private const val SERVICE_STATUS_EVENT = "serviceStatus"
+        private const val ERROR_EVENT = "error"
+
+        @Volatile
+        private var instance: StepCounterServiceModule? = null
+    }
+
+    // Module implementation...
+}
+```
+
+### 3. Register Native Module
+
+#### StepCounterPackage.kt
+```kotlin
+class StepCounterPackage : ReactPackage {
+    override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
+        return listOf(StepCounterServiceModule(reactContext))
+    }
+
+    override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> {
+        return emptyList()
     }
 }
 ```
 
-### 5. React Native Bridge
+## React Native Implementation
 
-1. Create `StepCounterServiceModule.kt`:
-```kotlin
-class StepCounterServiceModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
-    companion object {
-        private const val STEP_UPDATE_EVENT = "stepUpdate"
-        private const val SERVICE_STATUS_EVENT = "serviceStatus"
-        private const val ERROR_EVENT = "error"
-    }
+### 1. TypeScript Interface
 
-    @ReactMethod
-    fun startService(promise: Promise) {
-        try {
-            val context = reactApplicationContext
-            val serviceIntent = Intent(context, StepCounterService::class.java)
-            context.startForegroundService(serviceIntent)
-            isServiceRunning = true
-            sendServiceStatus(true)
-            promise.resolve(null)
-        } catch (e: Exception) {
-            promise.reject("SERVICE_ERROR", e)
-        }
-    }
+```typescript
+// app/types/StepCounterService.ts
+
+import { NativeEventEmitter, NativeModules } from 'react-native';
+
+const { StepCounterService } = NativeModules;
+
+if (!StepCounterService) {
+    throw new Error('StepCounterService native module is not available');
+}
+
+const eventEmitter = new NativeEventEmitter(StepCounterService);
+
+export interface StepUpdateEvent {
+    steps: number;
+}
+
+export interface ServiceStatusEvent {
+    isRunning: boolean;
+}
+
+export interface ErrorEvent {
+    message: string;
+}
+
+export interface StepCounterServiceInterface {
+    startService(): Promise<void>;
+    stopService(): Promise<void>;
+    addStepUpdateListener(callback: (event: StepUpdateEvent) => void): () => void;
+    addServiceStatusListener(callback: (event: ServiceStatusEvent) => void): () => void;
+    addErrorListener(callback: (event: ErrorEvent) => void): () => void;
+}
+
+// Implementation...
+```
+
+### 2. Main Component
+
+```typescript
+// app/index.tsx
+
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import StepCounterService from './types/StepCounterService';
+
+export default function App() {
+    const [isServiceRunning, setIsServiceRunning] = useState(false);
+    const [stepCount, setStepCount] = useState(0);
+    const [logs, setLogs] = useState<string[]>([]);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        // Add event listeners...
+        return () => {
+            // Cleanup...
+        };
+    }, []);
+
+    // Implementation...
 }
 ```
 
 ## Testing Implementation
 
-### 1. Service Testing
-```kotlin
-@Test
-fun testServiceLifecycle() {
-    val service = StepCounterService()
-    service.onCreate()
-    assertTrue(service.isCountingSteps)
-    service.onDestroy()
-    assertFalse(service.isCountingSteps)
-}
-```
+### 1. Unit Tests
 
-### 2. Data Manager Testing
-```kotlin
-@Test
-fun testDataPersistence() {
-    val manager = StepDataManager.getInstance(context)
-    manager.saveStepData(100, 0, 100)
-    assertEquals(100, manager.getTotalSteps())
-}
-```
-
-### 3. UI Testing
 ```typescript
-test('step count updates correctly', () => {
-  const { getByText } = render(<TabOneScreen />);
-  fireEvent.press(getByText('Start Service'));
-  expect(getByText('0 steps')).toBeTruthy();
+// __tests__/StepCounter.test.ts
+
+describe('StepCounterService', () => {
+    it('should initialize correctly', () => {
+        // Test initialization
+    });
+
+    it('should handle step updates', () => {
+        // Test step counting
+    });
+
+    it('should handle GMT reset', () => {
+        // Test reset functionality
+    });
 });
+```
+
+### 2. Integration Tests
+
+```kotlin
+// androidTest/StepCounterServiceTest.kt
+
+class StepCounterServiceTest {
+    @Test
+    fun testServiceLifecycle() {
+        // Test service lifecycle
+    }
+
+    @Test
+    fun testStepCounting() {
+        // Test step counting
+    }
+}
 ```
 
 ## Deployment
 
 ### 1. Build Configuration
-1. Update `app.json`:
-```json
-{
-  "expo": {
-    "android": {
-      "permissions": [
-        "ACTIVITY_RECOGNITION",
-        "FOREGROUND_SERVICE",
-        "POST_NOTIFICATIONS"
-      ]
+
+```gradle
+// android/app/build.gradle
+
+android {
+    defaultConfig {
+        // Configuration...
     }
-  }
+    
+    buildTypes {
+        release {
+            // Release configuration...
+        }
+    }
 }
 ```
 
-### 2. Build Process
-```bash
-# Development build
-npx expo run:android
+### 2. Release Build
 
-# Production build
+```bash
+# Generate release build
 cd android
 ./gradlew assembleRelease
 ```
 
-## Maintenance
-
-### 1. Logging
-```kotlin
-private fun logError(message: String, error: Exception) {
-    Log.e(TAG, message, error)
-    StepCounterServiceModule.getInstance()?.sendError(message)
-}
-```
-
-### 2. Error Recovery
-```kotlin
-private fun handleError(e: Exception) {
-    if (retryCount < MAX_RETRY_COUNT) {
-        retryCount++
-        Handler(Looper.getMainLooper()).postDelayed({
-            when (e) {
-                is IllegalStateException -> startStepCounting()
-                else -> saveStepData()
-            }
-        }, RETRY_DELAY_MS)
-    }
-}
-```
-
-### 3. Data Validation
-```kotlin
-private fun validateStepData(steps: Int): Boolean {
-    return steps >= 0 && steps <= MAX_STEPS_PER_DAY
-}
-```
-
 ## Troubleshooting
 
-### 1. Common Issues
-- Service not starting
-- Step count not updating
-- Data persistence issues
-- GMT reset problems
+### Common Issues
 
-### 2. Debugging Steps
-1. Check logs
-2. Verify permissions
-3. Test sensor availability
-4. Validate data storage
+1. Service Not Starting
+   - Check permissions
+   - Verify service registration
+   - Check error logs
 
-### 3. Recovery Procedures
-1. Restart service
-2. Clear data
-3. Reinstall app
-4. Factory reset 
+2. Step Count Not Updating
+   - Verify sensor availability
+   - Check event emission
+   - Debug data persistence
+
+3. GMT Reset Issues
+   - Verify date calculations
+   - Check reset logic
+   - Debug data storage
+
+### Debugging Tips
+
+1. Enable Debug Logging
+   ```kotlin
+   Log.d(TAG, "Detailed message")
+   ```
+
+2. Monitor Events
+   ```typescript
+   StepCounterService.addErrorListener((error) => {
+       console.log('Error:', error);
+   });
+   ```
+
+3. Test Sensor
+   ```kotlin
+   val sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+   val stepSensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
+   Log.d(TAG, "Sensor available: ${stepSensor != null}")
+   ```
+
+## Best Practices
+
+1. Error Handling
+   - Implement comprehensive error handling
+   - Provide user feedback
+   - Log errors for debugging
+
+2. Battery Optimization
+   - Use appropriate sensor delay
+   - Implement efficient data saving
+   - Optimize GMT checks
+
+3. Data Management
+   - Regular data persistence
+   - Proper state management
+   - Handle edge cases
+
+4. Testing
+   - Unit test core functionality
+   - Integration test service
+   - UI test user interactions 

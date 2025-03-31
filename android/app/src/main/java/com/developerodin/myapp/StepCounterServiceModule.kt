@@ -1,5 +1,6 @@
 package com.developerodin.myapp
 
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -32,6 +33,8 @@ class StepCounterServiceModule(reactContext: ReactApplicationContext) : ReactCon
         instance = this
         // Initialize StepDataManager
         stepDataManager = StepDataManager.getInstance(reactApplicationContext)
+        // Check actual service status on initialization
+        isServiceRunning = isServiceRunning()
         // Load saved step data
         loadSavedStepData()
     }
@@ -94,6 +97,47 @@ class StepCounterServiceModule(reactContext: ReactApplicationContext) : ReactCon
             Log.e(TAG, "Error stopping service", e)
             sendError("Failed to stop service: ${e.message}")
             promise.reject("SERVICE_ERROR", e)
+        }
+    }
+
+    @ReactMethod
+    fun checkServiceStatus(promise: Promise) {
+        try {
+            val isRunning = isServiceRunning()
+            val currentSteps = stepDataManager.getTotalSteps()
+            
+            // Update module state based on actual service status
+            isServiceRunning = isRunning
+            
+            val response = Arguments.createMap().apply {
+                putBoolean("isRunning", isRunning)
+                putInt("steps", currentSteps)
+            }
+            
+            // Send events to update UI
+            sendServiceStatus(isRunning)
+            if (isRunning) {
+                sendStepUpdate(currentSteps)
+            }
+            
+            Log.d(TAG, "Service status check - Running: $isRunning, Steps: $currentSteps")
+            promise.resolve(response)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking service status", e)
+            promise.reject("SERVICE_ERROR", e)
+        }
+    }
+
+    private fun isServiceRunning(): Boolean {
+        try {
+            val manager = reactApplicationContext.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val runningServices = manager.getRunningServices(Integer.MAX_VALUE)
+            val isRunning = runningServices.any { it.service.className == StepCounterService::class.java.name }
+            Log.d(TAG, "Service running check: $isRunning")
+            return isRunning
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking if service is running", e)
+            return false
         }
     }
 

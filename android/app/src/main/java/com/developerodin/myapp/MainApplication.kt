@@ -16,7 +16,6 @@ import com.facebook.soloader.SoLoader
 import expo.modules.ApplicationLifecycleDispatcher
 import expo.modules.ReactNativeHostWrapper
 
-import com.developerodin.myapp.StepCounterServicePackage
 import com.developerodin.myapp.StepCounterPackage
 
 

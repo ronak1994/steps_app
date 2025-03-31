@@ -144,19 +144,23 @@ class StepCounterService : Service(), SensorEventListener {
             if (stepDataManager.shouldResetSteps()) {
                 Log.d(TAG, "New GMT day detected, resetting step data")
                 stepDataManager.resetStepsForNewDay()
-                initialStepCount = -1
+                initialStepCount = -1  // Keep as -1 to trigger proper initialization in onSensorChanged
                 currentStepCount = 0
                 totalSteps = 0
             } else {
+                // Load saved data
                 initialStepCount = stepDataManager.getInitialStepCount()
                 currentStepCount = stepDataManager.getLastStepCount()
-                totalSteps = stepDataManager.getTotalSteps()
+                totalSteps = if (initialStepCount != -1) currentStepCount - initialStepCount else 0
             }
 
             Log.d(TAG, "Loaded saved data - Initial: $initialStepCount, Current: $currentStepCount, Total: $totalSteps")
             
             // Update UI with saved data
             StepCounterServiceModule.getInstance()?.sendStepUpdate(totalSteps)
+            
+            // Update notification with current steps
+            updateNotification()
         } catch (e: Exception) {
             Log.e(TAG, "Error loading saved step data", e)
             StepCounterServiceModule.getInstance()?.sendError("Failed to load saved step data: ${e.message}")
@@ -255,26 +259,33 @@ class StepCounterService : Service(), SensorEventListener {
     override fun onSensorChanged(event: SensorEvent?) {
         if (event?.sensor?.type == Sensor.TYPE_STEP_COUNTER) {
             try {
+                val steps = event.values[0].toInt()
+                
                 // Check if we need to reset for a new GMT day
                 if (stepDataManager.shouldResetSteps()) {
                     Log.d(TAG, "New GMT day detected during step counting, resetting data")
                     stepDataManager.resetStepsForNewDay()
-                    initialStepCount = -1
-                    currentStepCount = 0
+                    initialStepCount = steps  // Set new initial count to current steps
+                    currentStepCount = steps
                     totalSteps = 0
+                    StepCounterServiceModule.getInstance()?.sendStepUpdate(totalSteps)
+                    updateNotification()
+                    saveStepData()
+                    return
                 }
 
-                val steps = event.values[0].toInt()
-                
                 // Set initial step count if not set
                 if (initialStepCount == -1) {
                     initialStepCount = steps
-                    Log.d(TAG, "Initial step count: $initialStepCount")
+                    currentStepCount = steps
+                    totalSteps = 0
+                    Log.d(TAG, "Initial step count set to: $initialStepCount")
+                } else {
+                    // Normal step count update
+                    currentStepCount = steps
+                    totalSteps = currentStepCount - initialStepCount
+                    Log.d(TAG, "Steps updated - Current: $currentStepCount, Initial: $initialStepCount, Total: $totalSteps")
                 }
-                
-                currentStepCount = steps
-                totalSteps = currentStepCount - initialStepCount
-                Log.d(TAG, "Steps updated - Total: $totalSteps")
                 
                 // Update UI through the module
                 StepCounterServiceModule.getInstance()?.sendStepUpdate(totalSteps)
@@ -282,8 +293,8 @@ class StepCounterService : Service(), SensorEventListener {
                 // Update notification
                 updateNotification()
                 
-                // Save data periodically (every 100 steps)
-                if (totalSteps % 100 == 0) {
+                // Save data periodically (every 10 steps)
+                if (totalSteps % 10 == 0) {
                     saveStepData()
                 }
             } catch (e: Exception) {

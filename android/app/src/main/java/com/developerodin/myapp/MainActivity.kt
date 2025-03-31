@@ -3,15 +3,21 @@ import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build
 import android.os.Bundle
+import android.Manifest
+import android.content.pm.PackageManager
+import android.util.Log
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
-import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
+import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint
 import com.facebook.react.defaults.DefaultReactActivityDelegate
 
 import expo.modules.ReactActivityDelegateWrapper
 
 class MainActivity : ReactActivity() {
+  private val PERMISSION_REQUEST_CODE = 123
+  private val TAG = "MainActivity"
+
   override fun onCreate(savedInstanceState: Bundle?) {
     // Set the theme to AppTheme BEFORE onCreate to support
     // coloring the background, status bar, and navigation bar.
@@ -21,6 +27,7 @@ class MainActivity : ReactActivity() {
     SplashScreenManager.registerOnActivity(this)
     // @generated end expo-splashscreen
     super.onCreate(null)
+    checkAndRequestPermissions()
   }
 
   /**
@@ -40,7 +47,7 @@ class MainActivity : ReactActivity() {
           object : DefaultReactActivityDelegate(
               this,
               mainComponentName,
-              fabricEnabled
+              DefaultNewArchitectureEntryPoint.fabricEnabled
           ){})
   }
 
@@ -61,5 +68,41 @@ class MainActivity : ReactActivity() {
       // Use the default back button implementation on Android S
       // because it's doing more than [Activity.moveTaskToBack] in fact.
       super.invokeDefaultOnBackPressed()
+  }
+
+  private fun checkAndRequestPermissions() {
+    val permissions = mutableListOf<String>()
+
+    // Add required permissions
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      permissions.add(Manifest.permission.ACTIVITY_RECOGNITION)
+    }
+    permissions.add(Manifest.permission.BODY_SENSORS)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    // Filter out already granted permissions
+    val permissionsToRequest = permissions.filter {
+      checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
+    }
+
+    if (permissionsToRequest.isNotEmpty()) {
+      Log.d(TAG, "Requesting permissions: $permissionsToRequest")
+      requestPermissions(permissionsToRequest.toTypedArray(), PERMISSION_REQUEST_CODE)
+    }
+  }
+
+  override fun onRequestPermissionsResult(
+    requestCode: Int,
+    permissions: Array<String>,
+    grantResults: IntArray
+  ) {
+    super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    
+    if (requestCode == PERMISSION_REQUEST_CODE) {
+      val allGranted = grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+      Log.d(TAG, "Permissions result: ${if (allGranted) "all granted" else "some denied"}")
+    }
   }
 }

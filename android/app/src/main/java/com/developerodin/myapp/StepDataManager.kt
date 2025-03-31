@@ -3,8 +3,7 @@ package com.developerodin.myapp
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
-import java.time.Instant
-import java.time.LocalDateTime
+import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
@@ -121,23 +120,44 @@ class StepDataManager private constructor(private val context: Context) {
      */
     fun shouldResetSteps(): Boolean {
         try {
-            val currentGmtDate = LocalDateTime.now(ZoneOffset.UTC).toLocalDate()
-            val lastResetDate = prefs.getString(KEY_LAST_RESET_DATE, null)?.let {
-                LocalDateTime.parse(it, DateTimeFormatter.ISO_LOCAL_DATE)
-            }?.toLocalDate()
-
-            if (lastResetDate == null || !lastResetDate.isEqual(currentGmtDate)) {
-                // Update last reset date
-                prefs.edit()
-                    .putString(KEY_LAST_RESET_DATE, currentGmtDate.format(DateTimeFormatter.ISO_LOCAL_DATE))
-                    .apply()
+            val currentGmtDate = LocalDate.now(ZoneOffset.UTC)
+            val lastResetDateStr = prefs.getString(KEY_LAST_RESET_DATE, null)
+            
+            // If no last reset date, we should reset
+            if (lastResetDateStr == null) {
+                Log.d(TAG, "No last reset date found, resetting steps")
+                saveLastResetDate(currentGmtDate)
                 return true
             }
-            return false
+
+            // Parse last reset date
+            val lastResetDate = try {
+                LocalDate.parse(lastResetDateStr)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error parsing last reset date: $lastResetDateStr", e)
+                saveLastResetDate(currentGmtDate)
+                return true
+            }
+
+            // Check if it's a new day
+            val shouldReset = currentGmtDate.isAfter(lastResetDate)
+            if (shouldReset) {
+                Log.d(TAG, "New GMT day detected. Current: $currentGmtDate, Last: $lastResetDate")
+                saveLastResetDate(currentGmtDate)
+            }
+            
+            return shouldReset
         } catch (e: Exception) {
             Log.e(TAG, "Error checking step reset", e)
             return false
         }
+    }
+
+    private fun saveLastResetDate(date: LocalDate) {
+        prefs.edit()
+            .putString(KEY_LAST_RESET_DATE, date.toString())
+            .apply()
+        Log.d(TAG, "Saved last reset date: $date")
     }
 
     /**

@@ -1,99 +1,91 @@
-# API Reference
+# Step Counter App API Reference
 
 ## React Native Interface
 
 ### StepCounterService
 
-The main interface for interacting with the native step counter service.
+```typescript
+interface StepUpdateEvent {
+  steps: number;
+}
+
+interface ServiceStatusEvent {
+  isRunning: boolean;
+}
+
+interface ErrorEvent {
+  message: string;
+}
+
+interface StepCounterServiceInterface {
+  startService(): Promise<void>;
+  stopService(): Promise<void>;
+  addStepUpdateListener(callback: (event: StepUpdateEvent) => void): () => void;
+  addServiceStatusListener(callback: (event: ServiceStatusEvent) => void): () => void;
+  addErrorListener(callback: (event: ErrorEvent) => void): () => void;
+}
+```
 
 #### Methods
 
-##### startService()
-```typescript
-startService(): Promise<void>
-```
-Starts the step counter service.
-
-**Returns**: Promise that resolves when the service starts successfully.
-
-**Throws**: 
-- `SERVICE_ERROR`: If the service fails to start
-
-**Example**:
+##### `startService()`
+- **Description**: Starts the step counting service
+- **Returns**: Promise<void>
+- **Throws**: Error if service fails to start
+- **Example**:
 ```typescript
 try {
   await StepCounterService.startService();
-  console.log('Service started successfully');
 } catch (error) {
   console.error('Failed to start service:', error);
 }
 ```
 
-##### stopService()
-```typescript
-stopService(): Promise<void>
-```
-Stops the step counter service.
-
-**Returns**: Promise that resolves when the service stops successfully.
-
-**Throws**:
-- `SERVICE_ERROR`: If the service fails to stop
-
-**Example**:
+##### `stopService()`
+- **Description**: Stops the step counting service
+- **Returns**: Promise<void>
+- **Throws**: Error if service fails to stop
+- **Example**:
 ```typescript
 try {
   await StepCounterService.stopService();
-  console.log('Service stopped successfully');
 } catch (error) {
   console.error('Failed to stop service:', error);
 }
 ```
 
-#### Events
+#### Event Listeners
 
-##### stepUpdate
+##### `addStepUpdateListener()`
+- **Description**: Subscribes to step count updates
+- **Parameters**: Callback function receiving StepUpdateEvent
+- **Returns**: Unsubscribe function
+- **Example**:
 ```typescript
-interface StepUpdateEvent {
-  steps: number;
-}
-```
-Emitted when the step count is updated.
-
-**Example**:
-```typescript
-stepCounterEventEmitter.addListener(STEP_UPDATE, (event: StepUpdateEvent) => {
-  console.log('Steps updated:', event.steps);
+const unsubscribe = StepCounterService.addStepUpdateListener((event) => {
+  console.log('Steps:', event.steps);
 });
 ```
 
-##### serviceStatus
+##### `addServiceStatusListener()`
+- **Description**: Subscribes to service status changes
+- **Parameters**: Callback function receiving ServiceStatusEvent
+- **Returns**: Unsubscribe function
+- **Example**:
 ```typescript
-interface ServiceStatusEvent {
-  isRunning: boolean;
-}
-```
-Emitted when the service status changes.
-
-**Example**:
-```typescript
-stepCounterEventEmitter.addListener(SERVICE_STATUS, (event: ServiceStatusEvent) => {
-  console.log('Service status:', event.isRunning ? 'Running' : 'Stopped');
+const unsubscribe = StepCounterService.addServiceStatusListener((event) => {
+  console.log('Service running:', event.isRunning);
 });
 ```
 
-##### error
+##### `addErrorListener()`
+- **Description**: Subscribes to error events
+- **Parameters**: Callback function receiving ErrorEvent
+- **Returns**: Unsubscribe function
+- **Example**:
 ```typescript
-interface ErrorEvent {
-  message: string;
-}
-```
-Emitted when an error occurs.
-
-**Example**:
-```typescript
-stepCounterEventEmitter.addListener(ERROR, (event: ErrorEvent) => {
-  console.error('Error:', event.message);
+const unsubscribe = StepCounterService.addErrorListener((event) => {
+  console.error('Service error:', event.message);
 });
 ```
 
@@ -101,206 +93,123 @@ stepCounterEventEmitter.addListener(ERROR, (event: ErrorEvent) => {
 
 ### StepCounterService
 
-#### Methods
+#### Public Methods
 
-##### onCreate()
-```kotlin
-override fun onCreate()
-```
-Called when the service is created.
+##### `updateSteps(steps: Int)`
+- **Description**: Updates step count and notifies listeners
+- **Parameters**: Current step count
+- **Location**: Companion object
 
-**Responsibilities**:
-- Initialize service components
-- Set up sensor manager
-- Create notification channel
-- Initialize data manager
+#### Protected Methods
 
-##### onStartCommand()
-```kotlin
-override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int
-```
-Called when the service is started.
+##### `onCreate()`
+- **Description**: Initializes service components
+- **Responsibilities**:
+  - Initializes StepDataManager
+  - Creates notification channel
+  - Sets up step counter sensor
+  - Configures pending intent
 
-**Parameters**:
-- `intent`: The intent that started the service
-- `flags`: Additional flags
-- `startId`: Unique integer representing this start request
+##### `onStartCommand(intent: Intent?, flags: Int, startId: Int)`
+- **Description**: Handles service start request
+- **Returns**: START_STICKY
+- **Responsibilities**:
+  - Creates foreground notification
+  - Loads saved step data
+  - Starts step counting
 
-**Returns**: 
-- `START_STICKY`: Service will be restarted if killed
-- `START_NOT_STICKY`: Service will not be restarted
-
-##### onSensorChanged()
-```kotlin
-override fun onSensorChanged(event: SensorEvent?)
-```
-Called when sensor data changes.
-
-**Parameters**:
-- `event`: The sensor event containing step data
-
-**Responsibilities**:
-- Process step count
-- Update UI
-- Save data
-- Handle GMT reset
+##### `onSensorChanged(event: SensorEvent?)`
+- **Description**: Handles step counter sensor updates
+- **Responsibilities**:
+  - Checks for GMT reset
+  - Updates step counts
+  - Notifies UI
+  - Updates notification
+  - Saves data periodically
 
 ### StepDataManager
 
-#### Methods
+#### Public Methods
 
-##### getInstance()
-```kotlin
-fun getInstance(context: Context): StepDataManager
-```
-Gets the singleton instance of StepDataManager.
+##### `getInstance(context: Context)`
+- **Description**: Gets singleton instance
+- **Returns**: StepDataManager instance
 
-**Parameters**:
-- `context`: Application context
+##### `saveStepData(lastStepCount: Int, initialStepCount: Int, totalSteps: Int)`
+- **Description**: Saves step counting data
+- **Parameters**: Current counts and totals
 
-**Returns**: StepDataManager instance
+##### `shouldResetSteps()`
+- **Description**: Checks if GMT reset is needed
+- **Returns**: Boolean indicating reset needed
 
-##### saveStepData()
-```kotlin
-fun saveStepData(lastStepCount: Int, initialStepCount: Int, totalSteps: Int)
-```
-Saves step counting data.
+##### `resetStepsForNewDay()`
+- **Description**: Resets step data for new GMT day
 
-**Parameters**:
-- `lastStepCount`: Current step count
-- `initialStepCount`: Initial step count
-- `totalSteps`: Total steps for the day
+##### `getLastStepCount()`
+- **Description**: Gets last saved step count
+- **Returns**: Int
 
-##### getTotalSteps()
-```kotlin
-fun getTotalSteps(): Int
-```
-Gets the total steps for the current day.
+##### `getInitialStepCount()`
+- **Description**: Gets initial step count
+- **Returns**: Int
 
-**Returns**: Total step count
+##### `getTotalSteps()`
+- **Description**: Gets total steps
+- **Returns**: Int
 
-##### shouldResetSteps()
-```kotlin
-fun shouldResetSteps(): Boolean
-```
-Checks if steps should be reset based on GMT time.
+## Events
 
-**Returns**: true if steps should be reset
-
-### StepCounterServiceModule
-
-#### Methods
-
-##### startService()
-```kotlin
-@ReactMethod
-fun startService(promise: Promise)
-```
-Starts the step counter service.
-
-**Parameters**:
-- `promise`: Promise to resolve/reject
-
-##### stopService()
-```kotlin
-@ReactMethod
-fun stopService(promise: Promise)
-```
-Stops the step counter service.
-
-**Parameters**:
-- `promise`: Promise to resolve/reject
-
-##### sendStepUpdate()
-```kotlin
-fun sendStepUpdate(steps: Int)
-```
-Sends step count update to React Native.
-
-**Parameters**:
-- `steps`: Current step count
-
-##### sendServiceStatus()
-```kotlin
-fun sendServiceStatus(isRunning: Boolean)
-```
-Sends service status update to React Native.
-
-**Parameters**:
-- `isRunning`: Current service status
-
-##### sendError()
-```kotlin
-fun sendError(message: String)
-```
-Sends error message to React Native.
-
-**Parameters**:
-- `message`: Error message
-
-## Constants
-
-### Service Constants
-```kotlin
-private const val NOTIFICATION_ID = 1
-private const val CHANNEL_ID = "StepCounterChannel"
-private const val CHANNEL_NAME = "Step Counter"
-private const val MAX_RETRY_COUNT = 3
-private const val RETRY_DELAY_MS = 1000L
+### Step Update Event
+```json
+{
+  "steps": number  // Current step count
+}
 ```
 
-### Data Storage Constants
-```kotlin
-private const val PREF_NAME = "StepDataPrefs"
-private const val KEY_LAST_STEP_COUNT = "lastStepCount"
-private const val KEY_INITIAL_STEP_COUNT = "initialStepCount"
-private const val KEY_TOTAL_STEPS = "totalSteps"
-private const val KEY_LAST_RESET_DATE = "lastResetDate"
+### Service Status Event
+```json
+{
+  "isRunning": boolean  // Service running status
+}
 ```
 
-### Event Constants
-```typescript
-export const STEP_UPDATE = 'stepUpdate';
-export const SERVICE_STATUS = 'serviceStatus';
-export const ERROR = 'error';
+### Error Event
+```json
+{
+  "message": string  // Error description
+}
 ```
 
 ## Error Handling
 
 ### Service Errors
-```kotlin
-class ServiceError : Exception {
-    constructor(message: String) : super(message)
-    constructor(message: String, cause: Throwable) : super(message, cause)
-}
-```
+- Sensor unavailable
+- Permission denied
+- Service start/stop failures
+- Data persistence errors
 
-### Data Errors
-```kotlin
-class DataError : Exception {
-    constructor(message: String) : super(message)
-    constructor(message: String, cause: Throwable) : super(message, cause)
-}
-```
+### Recovery Mechanism
+- Maximum retry count: 3
+- Retry delay: 1000ms
+- Error propagation to UI
+- Automatic service recovery
 
-## Best Practices
+## Data Storage
 
-### 1. Service Management
-- Always check service status before operations
-- Handle service lifecycle properly
-- Implement proper cleanup
+### SharedPreferences Keys
+- `lastStepCount`: Last recorded step count
+- `initialStepCount`: Initial step count
+- `totalSteps`: Total steps for current period
+- `lastSaveTime`: Timestamp of last save
+- `lastResetDate`: Date of last GMT reset
 
-### 2. Data Management
-- Save data periodically
-- Validate data integrity
-- Handle GMT resets properly
+## Permissions
 
-### 3. Error Handling
-- Log all errors
-- Provide user feedback
-- Implement recovery mechanisms
-
-### 4. Event Handling
-- Clean up event listeners
-- Handle component unmounting
-- Validate event data 
+Required Android permissions:
+```xml
+<uses-permission android:name="android.permission.ACTIVITY_RECOGNITION"/>
+<uses-permission android:name="android.permission.BODY_SENSORS"/>
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+``` 
